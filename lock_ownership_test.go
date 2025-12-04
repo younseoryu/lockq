@@ -69,13 +69,14 @@ func TestLockOwnership_ReleaseLockWhenOwned(t *testing.T) {
 	lockRedisKey := config.WithDefaults().LockKeyPrefix() + lockKey
 
 	task := &Task{
-		ID:      "task-owner-id",
-		Type:    "test",
-		LockKey: lockKey,
+		ID:          "task-owner-id",
+		Type:        "test",
+		LockKey:     lockKey,
+		ExecutionID: "exec-task-owner-id",
 	}
 
 	// Task acquires the lock
-	err = rdb.Set(ctx, lockRedisKey, task.ID, 30*time.Second).Err()
+	err = rdb.Set(ctx, lockRedisKey, task.ExecutionID, 30*time.Second).Err()
 	require.NoError(t, err)
 
 	// Task releases its own lock (should succeed)
@@ -148,26 +149,28 @@ func TestLockOwnership_ConcurrentTasksSameLockKey(t *testing.T) {
 	lockRedisKey := config.WithDefaults().LockKeyPrefix() + lockKey
 
 	taskA := &Task{
-		ID:      "task-concurrent-a",
-		Type:    "slow_task",
-		LockKey: lockKey,
+		ID:          "task-concurrent-a",
+		Type:        "slow_task",
+		LockKey:     lockKey,
+		ExecutionID: "exec-task-concurrent-a",
 	}
 
 	taskB := &Task{
-		ID:      "task-concurrent-b",
-		Type:    "slow_task",
-		LockKey: lockKey,
+		ID:          "task-concurrent-b",
+		Type:        "slow_task",
+		LockKey:     lockKey,
+		ExecutionID: "exec-task-concurrent-b",
 	}
 
 	// Task A acquires lock
-	err = rdb.Set(ctx, lockRedisKey, taskA.ID, config.LockTimeout).Err()
+	err = rdb.Set(ctx, lockRedisKey, taskA.ExecutionID, config.LockTimeout).Err()
 	require.NoError(t, err)
 
 	// Simulate Task A taking too long - lock expires
 	time.Sleep(150 * time.Millisecond)
 
 	// Task B acquires the lock (Task A's expired)
-	set, err := rdb.SetNX(ctx, lockRedisKey, taskB.ID, config.LockTimeout).Result()
+	set, err := rdb.SetNX(ctx, lockRedisKey, taskB.ExecutionID, config.LockTimeout).Result()
 	require.NoError(t, err)
 	assert.True(t, set, "Task B should be able to acquire expired lock")
 
@@ -178,7 +181,7 @@ func TestLockOwnership_ConcurrentTasksSameLockKey(t *testing.T) {
 	// CRITICAL: Task B's lock must still be held
 	owner, err := rdb.Get(ctx, lockRedisKey).Result()
 	require.NoError(t, err)
-	assert.Equal(t, taskB.ID, owner, "Task B's lock must NOT be released by Task A")
+	assert.Equal(t, taskB.ExecutionID, owner, "Task B's lock must NOT be released by Task A")
 
 	// Task B can now safely release its own lock
 	err = store.ReleaseLock(ctx, taskB)
@@ -251,10 +254,11 @@ func TestLockOwnership_MoveToDLQReleasesWhenOwned(t *testing.T) {
 	taskKeyPrefix := config.WithDefaults().TaskKeyPrefix()
 
 	task := &Task{
-		ID:      "task-dlq-owned",
-		Type:    "failing_task",
-		LockKey: lockKey,
-		Repeat:  0,
+		ID:          "task-dlq-owned",
+		Type:        "failing_task",
+		LockKey:     lockKey,
+		Repeat:      0,
+		ExecutionID: "exec-task-dlq-owned",
 	}
 
 	// Store task data
@@ -266,7 +270,7 @@ func TestLockOwnership_MoveToDLQReleasesWhenOwned(t *testing.T) {
 	require.NoError(t, err)
 
 	// Task owns the lock
-	err = rdb.Set(ctx, lockRedisKey, task.ID, 30*time.Second).Err()
+	err = rdb.Set(ctx, lockRedisKey, task.ExecutionID, 30*time.Second).Err()
 	require.NoError(t, err)
 
 	// Move task to DLQ (should release its own lock)

@@ -92,15 +92,16 @@ func TestMixed_SequentialExecution(t *testing.T) {
 // TestMixed_ConcurrentExecution tests that tasks with different lock keys execute concurrently
 func TestMixed_ConcurrentExecution(t *testing.T) {
 	rdb := setupTestRedis(t)
-	q := setupTestQueue(t, rdb)
+	q1 := setupTestQueue(t, rdb)
+	q2 := setupTestQueue(t, rdb)
 
 	ctx := context.Background()
 
 	var executing int32
 	var maxConcurrent int32
 
-	// Register handler that tracks concurrency
-	q.RegisterHandler("test_task", func(ctx context.Context, payload []byte) error {
+	// Shared handler that tracks concurrency across all workers/queues
+	handler := func(ctx context.Context, payload []byte) error {
 		current := atomic.AddInt32(&executing, 1)
 
 		// Track max concurrent
@@ -115,12 +116,16 @@ func TestMixed_ConcurrentExecution(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		atomic.AddInt32(&executing, -1)
 		return nil
-	}, OnlyLocked())
+	}
+
+	// Register handler on both queues so we simulate multiple workers/processes
+	q1.RegisterHandler("test_task", handler, OnlyLocked())
+	q2.RegisterHandler("test_task", handler, OnlyLocked())
 
 	// Enqueue 5 tasks with different lock keys (should execute concurrently)
 	for i := 0; i < 5; i++ {
 		lockKey := "user:" + string(rune('A'+i))
-		_, err := q.Enqueue(ctx, "test_task", &TaskOptions{
+		_, err := q1.Enqueue(ctx, "test_task", &TaskOptions{
 			LockKey: lockKey,
 			Payload: []byte{byte(i)},
 		})
@@ -128,14 +133,15 @@ func TestMixed_ConcurrentExecution(t *testing.T) {
 	}
 
 	// DETERMINISTIC: Verify all tasks are in queue
-	count, err := q.Count(ctx, QueueLocked)
+	count, err := q1.Count(ctx, QueueLocked)
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), count, "Should have 5 tasks ready")
 
-	// Start worker
+	// Start workers for both queues to allow concurrent execution across lock keys
 	workerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = q.Start(workerCtx) }()
+	go func() { _ = q1.Start(workerCtx) }()
+	go func() { _ = q2.Start(workerCtx) }()
 
 	// Wait for all tasks to complete
 	time.Sleep(500 * time.Millisecond)
@@ -147,7 +153,7 @@ func TestMixed_ConcurrentExecution(t *testing.T) {
 	t.Logf("Max concurrent executions: %d (expected > 1)", maxConc)
 
 	// DETERMINISTIC: Verify all tasks completed
-	finalCount, err := q.CountAll(ctx, QueueLocked)
+	finalCount, err := q1.CountAll(ctx, QueueLocked)
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), finalCount, "All tasks should be processed")
 }

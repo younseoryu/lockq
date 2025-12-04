@@ -151,8 +151,15 @@ func TestStress_UnlockedOneOffTasksExactlyOnce(t *testing.T) {
 		ErrorDelay:     10 * time.Millisecond,
 	}
 
-	q, err := New(rdb, config)
-	require.NoError(t, err)
+	// Use multiple queue instances sharing the same Redis to simulate
+	// concurrent workers, matching the README's scaling model.
+	const numWorkers = 4
+	queues := make([]*Queue, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		q, err := New(rdb, config)
+		require.NoError(t, err)
+		queues[i] = q
+	}
 
 	ctx := context.Background()
 
@@ -199,11 +206,16 @@ func TestStress_UnlockedOneOffTasksExactlyOnce(t *testing.T) {
 		return nil
 	}
 
-	q.RegisterHandler("stress_unlocked_oneoff", handler, OnlyUnlocked())
+	// Register the same handler on all queues so each acts as an independent worker.
+	for _, q := range queues {
+		q.RegisterHandler("stress_unlocked_oneoff", handler, OnlyUnlocked())
+	}
 
 	for i := 0; i < numTasks; i++ {
 		id := fmt.Sprintf("task-%d", i)
-		_, err := q.Enqueue(ctx, "stress_unlocked_oneoff", &TaskOptions{
+		// Enqueue via one queue; all queues share the same Redis-backed unlocked
+		// queue so any worker can process the task.
+		_, err := queues[0].Enqueue(ctx, "stress_unlocked_oneoff", &TaskOptions{
 			Payload: []byte(id),
 		})
 		require.NoError(t, err)
@@ -212,9 +224,11 @@ func TestStress_UnlockedOneOffTasksExactlyOnce(t *testing.T) {
 	workerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go func() {
-		_ = q.Start(workerCtx)
-	}()
+	for _, q := range queues {
+		go func(q *Queue) {
+			_ = q.Start(workerCtx)
+		}(q)
+	}
 
 	deadline := time.Now().Add(workerRuntime)
 	for time.Now().Before(deadline) {
