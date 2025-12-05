@@ -67,7 +67,7 @@ Initialize your project and install lockq:
 
 ```bash
 go mod init github.com/your/repo
-go get -u github.com/younseoryu/lockq
+go get -u github.com/younseoryu/lockq@latest
 ```
 
 Make sure you have Redis 4.0+ running locally or in Docker.
