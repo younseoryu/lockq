@@ -544,9 +544,36 @@ func (q *Queue) CountAllByType(ctx context.Context, taskType string, queueType Q
 	return q.store.CountAll(ctx, queueKey)
 }
 
-// DeleteTask permanently removes a task from all queues.
+// DeleteTask permanently removes a task and cleans up all associated state.
+// Removes from locked/unlocked/DLQ queues and deletes task data.
+// Additional cleanup for locked tasks:
+// - One-off: releases distributed lock if owned by this task
+// - Repeating: releases distributed lock if owned + deletes repeat lock
+// Safe to call on any task - only releases locks owned by this task.
 func (q *Queue) DeleteTask(ctx context.Context, taskID string) error {
 	return q.store.DeleteTask(ctx, taskID)
+}
+
+// DeleteRepeatTask stops a locked repeating task by its lock key.
+// Repeat locks are unique per lock key across all task types, so include
+// task type in lock key to avoid collisions (e.g., "sync-user:user:123").
+// Only works for tasks with a lock key. Returns nil if task doesn't exist.
+func (q *Queue) DeleteRepeatTask(ctx context.Context, lockKey string) error {
+	if lockKey == "" {
+		return fmt.Errorf("lockKey required")
+	}
+
+	repeatLockKey := q.config.RepeatLockKeyPrefix() + lockKey
+
+	taskID, err := q.store.redis.Get(ctx, repeatLockKey).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return nil
+		}
+		return err
+	}
+
+	return q.DeleteTask(ctx, taskID)
 }
 
 // GetDeadLetterQueueCount returns the number of permanently failed tasks.

@@ -258,7 +258,10 @@ q.CountAllByType(ctx, "email:deliver", lockq.QueueLocked)
 // Dead letter queue
 q.GetDeadLetterQueueCount(ctx)
 q.RetryFromDLQ(ctx, taskID)
-q.DeleteTask(ctx, taskID)
+
+// Delete tasks
+q.DeleteTask(ctx, taskID)                   // Delete any task by ID
+q.DeleteRepeatTask(ctx, "user:123")         // Stop locked repeating task by lock key
 ```
 
 ## Graceful Shutdown
