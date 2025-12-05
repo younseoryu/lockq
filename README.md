@@ -4,7 +4,7 @@ Redis-backed task queue for Go with optional distributed locking.
 
 ## Why lockq?
 
-`lockq` gives you a simple way to move slow or unreliable work (emails, webhooks, sync jobs, batch processing, etc.) off your request path into a durable, Redis-backed queue. It lets you control *when* work runs (delayed and repeating tasks), *how often* it is retried (with backoff and DLQ), and *how it is serialized* per key (distributed locking), without having to run a separate broker or heavyweight worker framework.
+`lockq` gives you a simple way to move slow or unreliable work (emails, webhooks, sync jobs, batch processing, etc.) off your request path into a durable, Redis-backed queue. It lets you control *when* work runs (delayed and repeating tasks), *how often* it is retried (with backoff and DLQ), and *how it is serialized* per key (distributed locking, tasks with the same key never run concurrently), without having to run a separate broker or heavyweight worker framework.
 
 Because all coordination happens through Redis, you can horizontally scale producers and workers across many processes and hosts: they all talk to the same Redis instance or cluster, and the Lua scripts in this package ensure that enqueue, dequeue, locking, and retries are atomic and race-free.
 
