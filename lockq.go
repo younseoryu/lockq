@@ -234,14 +234,11 @@ func (q *Queue) workerLoopForType(ctx context.Context, taskType string, queueTyp
 		queueName = "locked"
 	}
 
-	log.Printf("[lockq] Worker started for %s queue (type=%s)", queueName, taskType)
-
 	backoff := q.config.InitialBackoff
 
 	for {
 		select {
 		case <-q.stop:
-			log.Printf("[lockq] Worker stopped for %s queue (type=%s)", queueName, taskType)
 			return
 		default:
 		}
@@ -251,7 +248,6 @@ func (q *Queue) workerLoopForType(ctx context.Context, taskType string, queueTyp
 			log.Printf("[lockq] Error polling %s queue (type=%s): %v", queueName, taskType, err)
 			select {
 			case <-q.stop:
-				log.Printf("[lockq] Worker stopped for %s queue (type=%s)", queueName, taskType)
 				return
 			case <-time.After(q.config.ErrorDelay):
 			}
@@ -265,7 +261,6 @@ func (q *Queue) workerLoopForType(ctx context.Context, taskType string, queueTyp
 
 			select {
 			case <-q.stop:
-				log.Printf("[lockq] Worker stopped for %s queue (type=%s)", queueName, taskType)
 				return
 			case <-time.After(backoff + jitter):
 				backoff *= 2
